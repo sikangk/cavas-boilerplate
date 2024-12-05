@@ -14,19 +14,24 @@ const App = () => {
     const [lastDistance, setLastDistance] = useState(null);
     const [buttonState,setButtonState] = useState({
         isPinchZoomEnabled:false,
-        isDrawing:false
+        isDrawing:false,
+        isShape:false,
     })
     const [shapeType, setShapeType] = useState("rect");
+    const [startPos, setStartPos] = useState(null); // 드래그 시작 좌표
+    const [newShape, setNewShape] = useState(null); // 현재 생성 중인 도형
 
     const buttonHandle = (which) => {
 
         switch (which) {
             case "draw":
-                return setButtonState({isPinchZoomEnabled: false,isDrawing: true});
+                return setButtonState({isPinchZoomEnabled: false,isDrawing: true,isShape: false});
             case "pinch":
-                return setButtonState({isPinchZoomEnabled: true,isDrawing: false})
+                return setButtonState({isPinchZoomEnabled: true,isDrawing: false,isShape:false});
+            case "shape":
+                return setButtonState({isPinchZoomEnabled: false,isDrawing: false,isShape:true});
             default:
-                return setButtonState({isPinchZoomEnabled: true,isDrawing: false})
+                return setButtonState({isPinchZoomEnabled: true,isDrawing: false,isShape: false})
 
         }
     }
@@ -89,8 +94,8 @@ const App = () => {
         return transform.point(pos);
     };
 
-// handleMouseDown 수정
-    const handleMouseDown = (e) => {
+
+    const handleDrawMouseDown = (e) => {
         if (!buttonState.isDrawing) return;
 
         const stage = e.target.getStage();
@@ -114,38 +119,123 @@ const App = () => {
         );
     };
 
-// handleMouseMove 수정
-    const handleMouseMove = (e) => {
+    // handleMouseMove 수정
+    const handleDrawMouseMove = (e) => {
         if (!buttonState.isDrawing || !currentLine) return;
 
         const stage = e.target.getStage();
         const pos = getRelativePointerPosition(stage); // 상대 좌표로 변환
-        setCurrentLine((prevLine) => {
-            const updatedLine = {
-                ...prevLine,
-                points: [...prevLine.points, pos.x, pos.y],
-            };
+
+        if (buttonState.isDrawing) {
+
+            setCurrentLine((prevLine) => {
+                const updatedLine = {
+                    ...prevLine,
+                    points: [...prevLine.points, pos.x, pos.y],
+                };
+                setLayers((prevLayers) =>
+                    prevLayers.map((layer) =>
+                        layer.id === selectedLayerId
+                            ? {
+                                ...layer,
+                                shapes: layer.shapes.map((shape) =>
+                                    shape.id === prevLine.id ? updatedLine : shape
+                                ),
+                            }
+                            : layer
+                    )
+                );
+                return updatedLine;
+            });
+        }else if(buttonState.isShape){
+            const width = Math.abs(pos.x - startPos.x);
+            const height = Math.abs(pos.y - startPos.y);
+
+            const x = Math.min(pos.x, startPos.x);
+            const y = Math.min(pos.y, startPos.y);
+
+            if (shapeType === "rect") {
+                setNewShape({ x, y, width, height, type: "rect", fill: "rgba(0,0,255,0.5)" });
+            } else if (shapeType === "circle") {
+                const radius = Math.sqrt(width ** 2 + height ** 2) / 2;
+                setNewShape({
+                    x: (pos.x + startPos.x) / 2,
+                    y: (pos.y + startPos.y) / 2,
+                    radius,
+                    type: "circle",
+                    fill: "rgba(255,0,0,0.5)",
+                });
+            }
+        }
+    };
+
+    const handleDrawMouseUp = () => {
+        if (buttonState.isPinchZoomEnabled) return; // 핀치 줌 비활성화 시 동작 중지
+        if (!buttonState.isDrawing) return;
+
+        if(buttonState.isDrawing) setCurrentLine(null); // 드로잉 종료
+
+        if(buttonState.isShape){
             setLayers((prevLayers) =>
                 prevLayers.map((layer) =>
                     layer.id === selectedLayerId
-                        ? {
-                            ...layer,
-                            shapes: layer.shapes.map((shape) =>
-                                shape.id === prevLine.id ? updatedLine : shape
-                            ),
-                        }
+                        ? { ...layer, shapes: [...layer.shapes, { ...newShape, id: `shape-${Date.now()}` }] }
                         : layer
                 )
             );
-            return updatedLine;
-        });
+            setStartPos(null); // 시작 좌표 초기화
+            setNewShape(null); // 임시 도형 초기화
+        }
     };
 
-    const handleMouseUp = () => {
-        if (buttonState.isPinchZoomEnabled) return; // 핀치 줌 비활성화 시 동작 중지
-        if (!buttonState.isDrawing) return;
-        setCurrentLine(null); // 드로잉 종료
+    const handleShapeMouseDown = (e) => {
+        if (!buttonState.isShape) return; // 드로잉 모드 확인
+        const stage = e.target.getStage();
+        const pos = getRelativePointerPosition(stage); // 상대 좌표 계산
+        setStartPos(pos); // 시작 좌표 저장
     };
+
+// 드래그 이동 처리
+    const handleShapeMouseMove = (e) => {
+        if (!buttonState.isShape || !startPos) return;
+        const stage = e.target.getStage();
+        const pos = getRelativePointerPosition(stage);
+
+        const width = Math.abs(pos.x - startPos.x);
+        const height = Math.abs(pos.y - startPos.y);
+
+        const x = Math.min(pos.x, startPos.x);
+        const y = Math.min(pos.y, startPos.y);
+
+        if (shapeType === "rect") {
+            setNewShape({ x, y, width, height, type: "rect", fill: "rgba(0,0,255,0.5)" });
+        } else if (shapeType === "circle") {
+            const radius = Math.sqrt(width ** 2 + height ** 2) / 2;
+            setNewShape({
+                x: (pos.x + startPos.x) / 2,
+                y: (pos.y + startPos.y) / 2,
+                radius,
+                type: "circle",
+                fill: "rgba(255,0,0,0.5)",
+            });
+        }
+    };
+
+// 드래그 종료 처리
+    const handleShapeMouseUp = (e) => {
+        if (!buttonState.isShape || !startPos) return;
+        setLayers((prevLayers) =>
+            prevLayers.map((layer) =>
+                layer.id === selectedLayerId
+                    ? { ...layer, shapes: [...layer.shapes, { ...newShape, id: `shape-${Date.now()}` }] }
+                    : layer
+            )
+        );
+        setStartPos(null); // 시작 좌표 초기화
+        setNewShape(null); // 임시 도형 초기화
+    };
+
+
 
     // 투명도 조정
     const changeLayerOpacity = (value) => {
@@ -288,6 +378,8 @@ const App = () => {
     const backgroundImage = new window.Image();
     backgroundImage.src = "https://shoes-image-bucket.s3.ap-northeast-2.amazonaws.com/ecommerce/musinsa/shoes_20231127151454363555.jpg"; // 이미지 경로
 
+
+
     return (
         <div style={{display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"center"}}>
             {/* UI Buttons */}
@@ -302,6 +394,14 @@ const App = () => {
                     <button onClick={() => buttonHandle("draw")}>
                         {buttonState.isDrawing ? "드로잉 종료" : "드로잉 시작"}
                     </button>
+                    <button onClick={() => {
+                        setShapeType("rect");
+                        buttonHandle("shape");
+                    }}>사각형</button>
+                    <button onClick={() => {
+                        setShapeType("circle");
+                        buttonHandle("shape");
+                    }}>원</button>
                     <button onClick={saveToJSON}>저장</button>
                     <button onClick={loadFromJSON}>불러오기</button>
                     <button onClick={() => changeLayerOpacity(0.1)}>투명도 낮추기</button>
@@ -332,9 +432,9 @@ const App = () => {
                 height={800}
                 ref={stageRef}
                 style={{ border: "1px solid gray" }}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
+                onMouseDown={(buttonState.isDrawing || buttonState.isPinchZoomEnabled) ? handleDrawMouseDown : handleShapeMouseDown}
+                onMouseMove={(buttonState.isDrawing || buttonState.isPinchZoomEnabled) ? handleDrawMouseMove : handleShapeMouseMove}
+                onMouseUp={(buttonState.isDrawing || buttonState.isPinchZoomEnabled) ? handleDrawMouseUp : handleShapeMouseUp}
                 draggable={buttonState.isPinchZoomEnabled}
                 // scaleX={scale}
                 // scaleY={scale}
@@ -345,11 +445,11 @@ const App = () => {
                 {layers.map((layer) => (
                     <Layer key={layer.id} opacity={layer.opacity} width={800} height={800}>
                         {/*<image src={"https://shoes-image-bucket.s3.ap-northeast-2.amazonaws.com/ecommerce/musinsa/shoes_20231127151454363555.jpg"} style={{width:500,height:500}}/>*/}
-                        <Image
-                            image={backgroundImage}
-                            width={800} // 이미지 크기
-                            height={800}
-                        />
+                        {/*<Image*/}
+                        {/*    image={backgroundImage}*/}
+                        {/*    width={800} // 이미지 크기*/}
+                        {/*    height={800}*/}
+                        {/*/>*/}
                         {layer.shapes.map((shape) => {
                             if (shape.type === "rect") {
                                 return (
@@ -380,6 +480,40 @@ const App = () => {
                             }
                             return null;
                         })}
+                        {/* 임시 도형 */}
+                        {newShape && shapeType === "rect" && (
+                            <Rect
+                                x={newShape.x}
+                                y={newShape.y}
+                                width={newShape.width}
+                                height={newShape.height}
+                                fill={newShape.fill}
+                                stroke="black"
+                                strokeWidth={2}
+                                dash={[4, 4]} // 점선
+                                draggable={true}
+                                onDragEnd={(e) => {
+                                    const pos = e.target.position();
+                                    updateShapeInLayer(newShape.id, { x: newShape.x, y: newShape.y });
+                                }}
+                            />
+                        )}
+                        {newShape && shapeType === "circle" && (
+                            <Circle
+                                x={newShape.x}
+                                y={newShape.y}
+                                radius={newShape.radius}
+                                fill={newShape.fill}
+                                stroke="black"
+                                strokeWidth={2}
+                                dash={[4, 4]} // 점선
+                                draggable={true}
+                                onDragEnd={(e) => {
+                                    const pos = e.target.position();
+                                    updateShapeInLayer(newShape.id, { x: newShape.x, y: newShape.y });
+                                }}
+                            />
+                        )}
                     </Layer>
                 ))}
             </Stage>
